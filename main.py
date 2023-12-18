@@ -1,4 +1,5 @@
 from argparse import ArgumentParser
+from scipy.spatial.transform import Rotation
 from dataclasses import dataclass
 import hashlib
 import math
@@ -184,12 +185,9 @@ def create_sdf(fixed_groups: list[FixedGroup], model_name: str) -> etree._Elemen
         link = etree.SubElement(model_element, 'link', name=link_name)
 
         for part in group.parts.values():
+            (x, y, z) = part.transform[:3, 3]
+            (roll, pitch, yaw) = Rotation.from_matrix(part.transform[:3, :3]).as_euler('xyz')
             mesh_path = f'model://{model_name}/meshes/{part.identifier}.stl'
-
-            x = part.transform[0, 3]
-            y = part.transform[1, 3]
-            z = part.transform[2, 3]
-            (roll, pitch, yaw) = transform_matrix_to_euler_angles(part.transform)
 
             visual = etree.SubElement(link, 'visual', name=part.identifier)
             etree.SubElement(visual, 'pose').text = f'{x} {y} {z} {roll} {pitch} {yaw}'
@@ -203,26 +201,13 @@ def create_sdf(fixed_groups: list[FixedGroup], model_name: str) -> etree._Elemen
             mesh = etree.SubElement(geometry, 'mesh')
             etree.SubElement(mesh, 'uri').text = mesh_path
 
+        (x, y, z) = group.mass_properties.center_of_mass
         inertial = etree.SubElement(link, 'inertial')
-        etree.SubElement(inertial, 'pose').text = f'{group.mass_properties.center_of_mass[0]} {group.mass_properties.center_of_mass[1]} {group.mass_properties.center_of_mass[2]} {0} {0} {0}'
+        etree.SubElement(inertial, 'pose').text = f'{x} {y} {z} 0 0 0'
         etree.SubElement(inertial, 'mass').text = str(group.mass_properties.mass)
         # etree.SubElement(inertial, 'inertia').text = str(group.mass_properties.mass)
 
     return etree.ElementTree(sdf_root)
-
-def transform_matrix_to_euler_angles(matrix: np.ndarray):
-    sy = math.sqrt(matrix[0, 0] * matrix[0, 0] + matrix[1, 0] * matrix[1, 0])
-
-    if not sy < 1e-6:
-        x = math.atan2(matrix[2, 1], matrix[2, 2])
-        y = math.atan2(-matrix[2, 0], sy)
-        z = math.atan2(matrix[1, 0], matrix[0, 0])
-    else:
-        x = math.atan2(-matrix[1, 2], matrix[1, 1])
-        y = math.atan2(-matrix[2, 0], sy)
-        z = 0
-
-    return np.array([x, y, z])
 
 def skew_symmetric_matrix(r):
     return np.ndarray([
