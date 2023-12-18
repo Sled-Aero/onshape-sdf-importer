@@ -29,6 +29,9 @@ class Client:
     def get_parts_stl(self, did: str, mid: str, eid: str, pid: str) -> bytes:
         redirect = self._api_request('get', f'/parts/d/{did}/m/{mid}/e/{eid}/partid/{pid}/stl', params={'mode': 'binary', 'units': 'meter'}).headers['Location']
         return self._session.get(redirect).content
+    
+    def get_mass_properties(self, did: str, mid: str, eid: str, pid: str) -> dict:
+        return self._api_request('get', f'/parts/d/{did}/m/{mid}/e/{eid}/partid/{pid}/massproperties', params={'useMassPropertyOverrides': 'true'}).json()
 
 def main():
     parser = ArgumentParser(description='Onshape To Gazebo SDF Importing Tool')
@@ -50,19 +53,34 @@ def main():
 
     parts = extract_parts(assembly)
     mates = extract_mates(assembly)
+    part_mass_properties = get_mass_properties(parts, client)
 
     # download_part_meshes(client, parts, meshes_path)
 
     trunk = find_trunk(mates)
-    print(f'trunk is: {parts[trunk].identifier}')
+    print(f'Trunk is: {parts[trunk].identifier}')
 
-    part_groups = collect_part_groups(trunk, parts, mates)
+    grouped_parts = collect_part_groups(trunk, parts, mates)
 
-    for group in part_groups:
-        names = ', '.join(parts[id].identifier for id in group)
-        print(f'found group: {names}')
+    print('Fixed part groups:')
+    for group in grouped_parts:
+        print(', '.join(parts[id].identifier for id in group))
 
-    sdf = create_sdf(part_groups, parts, args.name)
+    fixed_groups = []
+    for group in grouped_parts:
+        masses = [part_mass_properties[part].mass for part in group]
+        group_mass = sum(masses)
+
+        center_of_masses = [np.dot(parts[part].transform, np.append(part_mass_properties[part].center_of_mass, 1)) for part in group]
+        group_center_of_mass = sum(masses[i] * center_of_masses[i] for i in range(len(masses))) / len(masses) / group_mass
+
+        # for p in group: print(part_mass_properties[p].inertia)
+
+        group_inertia = sum(part_mass_properties[part].inertia for part in group)
+
+        fixed_groups.append(FixedGroup({part: parts[part] for part in group}, MassProperties(group_mass, group_center_of_mass, group_inertia)))
+
+    sdf = create_sdf(fixed_groups, args.name)
     sdf.write(Path(model_path, f'{args.name}.sdf'), pretty_print=True, xml_declaration=True, encoding='utf-8')
 
     config = create_config('thing')
@@ -76,18 +94,18 @@ def part_identifier(name: str):
 @dataclass
 class Part:
     identifier: str
-    transform: np.matrix
+    transform: np.ndarray
     did: str
     mid: str
     eid: str
     pid: str
 
     @classmethod
-    def from_data(cls, data, transform: np.matrix):
+    def from_data(cls, data, transform: np.ndarray):
         return cls(part_identifier(data['name']), transform, data['documentId'], data['documentMicroversion'], data['elementId'], data['partId'])
 
 def extract_parts(assembly: dict) -> dict[str, Part]:
-    part_transforms = {data['path'][0]: np.matrix(np.reshape(data['transform'], (4, 4))) for data in assembly['rootAssembly']['occurrences']}
+    part_transforms = {data['path'][0]: np.reshape(data['transform'], (4, 4)) for data in assembly['rootAssembly']['occurrences']}
     return {data['id']: Part.from_data(data, part_transforms[data['id']]) for data in assembly['rootAssembly']['instances']}
 
 @dataclass
@@ -102,6 +120,30 @@ class Mate:
     
 def extract_mates(assembly: dict) -> dict[str, Mate]:
     return {data['id']: Mate.from_data(data['featureData']) for data in assembly['rootAssembly']['features']}
+
+@dataclass
+class MassProperties:
+    mass: float
+    center_of_mass: np.ndarray
+    inertia: np.ndarray
+
+    @classmethod
+    def from_data(cls, data):
+        return cls(data['mass'][0], np.reshape(data['centroid'][:3], 3), np.reshape(data['inertia'][:9], (3, 3)))
+
+def get_mass_properties(parts: dict[str, Part], client: Client) -> dict[str, MassProperties]:
+    mass_properties = {}
+
+    for id, part in parts.items():
+        data = client.get_mass_properties(part.did, part.mid, part.eid, part.pid)
+        mass_properties[id] = MassProperties.from_data(next(iter(data['bodies'].values())))
+
+    return mass_properties
+
+@dataclass
+class FixedGroup:
+    parts: dict[str, Part]
+    mass_properties: MassProperties
 
 def download_part_meshes(client: Client, parts: dict[str, Part], meshes_path: Path):
     for part in parts.values():
@@ -132,83 +174,43 @@ def collect_part_groups(trunk: str, parts: dict[str, Part], mates: dict[str, Mat
 
     return groups
 
-# r = client._request('get', f'/assemblies/d/{document}/w/{workspace}/e/{element}', params={'includeMateFeatures': False, 'includeNonSolids': False, 'includeMateConnectors': False, 'excludeSuppressed': False})
-# print(r.json())
-
-# client = Client('https://cad.onshape.com/api/v6', os.environ['ONSHAPE_ACCESS_KEY'], os.environ['ONSHAPE_SECRET_KEY'])
-# print(client.get_assembly(document, workspace, element))
-# print(json.dumps(client.get_assembly(document, workspace, element), indent=4))
-
-# assembly_features = client.get_assembly_features(document, workspace, element)
-
-# with open('assembly_features.json', 'w') as f:
-#     f.write(json.dumps(assembly_features, indent=4))
-
-# assembly = client.get_assembly(document, workspace, element)
-
-# with open('assembly_parts.json', 'w') as f:
-#     f.write(json.dumps(assembly, indent=4))
-
-# print([instance['name'] for instance in assembly_parts['rootAssembly']['instances']])
-
-# my_part = assembly_parts['rootAssembly']['instances'][0]
-# my_stl = client.get_parts_stl(my_part['documentId'], my_part['documentMicroversion'], my_part['elementId'], my_part['partId'])
-
-# with open('my_part.stl', 'wb') as f:
-#     f.write(my_stl)
-
-# for part in assembly_parts['rootAssembly']['instances']:
-#     stl = client.get_parts_stl(part['documentId'], part['documentMicroversion'], part['elementId'], part['partId'])
-
-#     with open(f'{part["name"].replace(">", "").replace("<", "")}.stl', 'wb') as f:
-#         f.write(stl)
-
-# for part in parts.values():
-#     stl = client.get_parts_stl(part.did, part.mid, part.eid, part.pid)
-
-#     with open(f'{part.identifier}.stl', 'wb') as f:
-#         f.write(stl)
-
-# for id, part in parts.items():
-#     print(f'{part.identifier} ({id}) has translation: {part.transform[0, 3]} {part.transform[1, 3]} {part.transform[2, 3]}')
-
-def create_sdf(part_groups: list[list[str]], parts: dict[str, Part], model_name: str) -> etree._ElementTree:
+def create_sdf(fixed_groups: list[FixedGroup], model_name: str) -> etree._ElementTree:
     sdf_root = etree.Element('sdf', version='1.6')
     model_element = etree.SubElement(sdf_root, 'model', name='blank_model')
 
-    for group in part_groups:
-        link_name = parts[group[0]].identifier
+    for group in fixed_groups:
+        # print('g: ', [part.identifier for part in group.parts.values()])
+        link_name = next(iter(group.parts.values())).identifier
         link = etree.SubElement(model_element, 'link', name=link_name)
 
-        for id in group:
-            mesh_path = f'model://{model_name}/meshes/{parts[id].identifier}.stl'
+        for part in group.parts.values():
+            mesh_path = f'model://{model_name}/meshes/{part.identifier}.stl'
 
-            x = parts[id].transform[0, 3]
-            y = parts[id].transform[1, 3]
-            z = parts[id].transform[2, 3]
-            (roll, pitch, yaw) = transform_matrix_to_euler_angles(parts[id].transform)
+            x = part.transform[0, 3]
+            y = part.transform[1, 3]
+            z = part.transform[2, 3]
+            (roll, pitch, yaw) = transform_matrix_to_euler_angles(part.transform)
 
-            visual = etree.SubElement(link, 'visual', name=parts[id].identifier)
+            visual = etree.SubElement(link, 'visual', name=part.identifier)
             etree.SubElement(visual, 'pose').text = f'{x} {y} {z} {roll} {pitch} {yaw}'
             geometry = etree.SubElement(visual, 'geometry')
             mesh = etree.SubElement(geometry, 'mesh')
             etree.SubElement(mesh, 'uri').text = mesh_path
 
-            collision = etree.SubElement(link, 'collision', name=parts[id].identifier)
+            collision = etree.SubElement(link, 'collision', name=part.identifier)
             etree.SubElement(collision, 'pose').text = f'{x} {y} {z} {roll} {pitch} {yaw}'
             geometry = etree.SubElement(collision, 'geometry')
             mesh = etree.SubElement(geometry, 'mesh')
             etree.SubElement(mesh, 'uri').text = mesh_path
 
-            inertial = etree.SubElement(link, 'inertial', name=parts[id].identifier)
-            etree.SubElement(collision, 'pose').text = f'{x} {y} {z} {roll} {pitch} {yaw}'
-            geometry = etree.SubElement(collision, 'geometry')
-            mesh = etree.SubElement(geometry, 'mesh')
-            etree.SubElement(mesh, 'uri').text = mesh_path
+        inertial = etree.SubElement(link, 'inertial')
+        etree.SubElement(inertial, 'pose').text = f'{group.mass_properties.center_of_mass[0]} {group.mass_properties.center_of_mass[1]} {group.mass_properties.center_of_mass[2]} {0} {0} {0}'
+        etree.SubElement(inertial, 'mass').text = str(group.mass_properties.mass)
+        # etree.SubElement(inertial, 'inertia').text = str(group.mass_properties.mass)
 
     return etree.ElementTree(sdf_root)
 
-def transform_matrix_to_euler_angles(matrix: np.matrix):
+def transform_matrix_to_euler_angles(matrix: np.ndarray):
     sy = math.sqrt(matrix[0, 0] * matrix[0, 0] + matrix[1, 0] * matrix[1, 0])
 
     if not sy < 1e-6:
@@ -221,6 +223,17 @@ def transform_matrix_to_euler_angles(matrix: np.matrix):
         z = 0
 
     return np.array([x, y, z])
+
+def skew_symmetric_matrix(r):
+    return np.ndarray([
+        [0, -r[2], r[1]],
+        [r[2], 0, -r[0]],
+        [-r[1], r[0], 0]
+    ])
+
+def combine_moment_of_inertia_matrices(inertial_1: np.ndarray, inertial_2: np.ndarray, mass_1: float, mass_2: float, offset: np.ndarray):
+    skew_matrix = skew_symmetric_matrix(offset)
+    return inertial_1 + inertial_2 + mass_1 * mass_2 * np.dot(skew_matrix, skew_matrix)
 
 def create_config(name: str) -> etree._ElementTree:
     model = etree.Element('model')
