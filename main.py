@@ -69,17 +69,13 @@ def main():
 
     fixed_groups = []
     for group in grouped_parts:
-        masses = [part_mass_properties[part].mass for part in group]
-        group_mass = sum(masses)
+        link_frame_mass_properties = [part_mass_properties[part].apply_transform(parts[part].transform) for part in group]
 
-        center_of_masses = [np.dot(parts[part].transform, np.append(part_mass_properties[part].center_of_mass, 1))[:3] for part in group]
-        group_center_of_mass = sum(masses[i] * center_of_masses[i] for i in range(len(masses))) / len(masses) / group_mass
+        group_mass = sum(mass_properties.mass for mass_properties in link_frame_mass_properties)
+        group_com = sum(mass_properties.mass * mass_properties.com for mass_properties in link_frame_mass_properties) / len(link_frame_mass_properties) / group_mass
+        group_inertia = sum(mass_properties.inertia_at_point(group_com) for mass_properties in link_frame_mass_properties)
 
-        # for p in group: print(part_mass_properties[p].inertia)
-
-        group_inertia = sum(part_mass_properties[part].inertia for part in group)
-
-        fixed_groups.append(FixedGroup({part: parts[part] for part in group}, MassProperties(group_mass, group_center_of_mass, group_inertia)))
+        fixed_groups.append(FixedGroup({part: parts[part] for part in group}, MassProperties(group_mass, group_com, group_inertia)))
 
     sdf = create_sdf(fixed_groups, parts, mates, args.name)
     sdf.write(Path(model_path, f'{args.name}.sdf'), pretty_print=True, xml_declaration=True, encoding='utf-8')
@@ -129,8 +125,21 @@ def extract_mates(assembly: dict) -> dict[str, Mate]:
 @dataclass
 class MassProperties:
     mass: float
-    center_of_mass: np.ndarray
+    com: np.ndarray
     inertia: np.ndarray
+
+    def apply_transform(self, transform: np.ndarray) -> 'MassProperties':
+        rotation = transform[:3, :3]
+
+        return MassProperties(
+            self.mass,
+            np.dot(transform, np.append(self.com, 1))[:3],
+            np.dot(np.dot(rotation, self.inertia), rotation.T),
+        )
+    
+    def inertia_at_point(self, point: np.ndarray) -> np.ndarray:
+        offset = self.com - point
+        return self.inertia + (np.dot(offset, offset) * np.identity(3) - np.outer(offset, offset)) * self.mass
 
     @classmethod
     def from_data(cls, data):
@@ -205,11 +214,17 @@ def create_sdf(fixed_groups: list[FixedGroup], parts: dict[str, Part], mates: di
             mesh = etree.SubElement(geometry, 'mesh')
             etree.SubElement(mesh, 'uri').text = mesh_path
 
-        (x, y, z) = group.mass_properties.center_of_mass
+        (x, y, z) = group.mass_properties.com
         inertial = etree.SubElement(link, 'inertial')
         etree.SubElement(inertial, 'pose').text = f'{x} {y} {z} 0 0 0'
         etree.SubElement(inertial, 'mass').text = str(group.mass_properties.mass)
-        # etree.SubElement(inertial, 'inertia').text = str(group.mass_properties.mass)
+        inertia = etree.SubElement(inertial, 'inertia')
+        etree.SubElement(inertia, 'ixx').text = str(group.mass_properties.inertia[0, 0])
+        etree.SubElement(inertia, 'ixy').text = str(group.mass_properties.inertia[0, 1])
+        etree.SubElement(inertia, 'ixz').text = str(group.mass_properties.inertia[0, 2])
+        etree.SubElement(inertia, 'iyy').text = str(group.mass_properties.inertia[1, 1])
+        etree.SubElement(inertia, 'iyz').text = str(group.mass_properties.inertia[1, 2])
+        etree.SubElement(inertia, 'izz').text = str(group.mass_properties.inertia[2, 2])
 
     def find_group(part: str) -> int:
         for i, group in enumerate(fixed_groups):
