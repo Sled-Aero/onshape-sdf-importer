@@ -72,7 +72,7 @@ def main():
         masses = [part_mass_properties[part].mass for part in group]
         group_mass = sum(masses)
 
-        center_of_masses = [np.dot(parts[part].transform, np.append(part_mass_properties[part].center_of_mass, 1)) for part in group]
+        center_of_masses = [np.dot(parts[part].transform, np.append(part_mass_properties[part].center_of_mass, 1))[:3] for part in group]
         group_center_of_mass = sum(masses[i] * center_of_masses[i] for i in range(len(masses))) / len(masses) / group_mass
 
         # for p in group: print(part_mass_properties[p].inertia)
@@ -81,7 +81,7 @@ def main():
 
         fixed_groups.append(FixedGroup({part: parts[part] for part in group}, MassProperties(group_mass, group_center_of_mass, group_inertia)))
 
-    sdf = create_sdf(fixed_groups, args.name)
+    sdf = create_sdf(fixed_groups, parts, mates, args.name)
     sdf.write(Path(model_path, f'{args.name}.sdf'), pretty_print=True, xml_declaration=True, encoding='utf-8')
 
     config = create_config('thing')
@@ -114,10 +114,14 @@ class Mate:
     parent: str
     child: str
     kind: str
+    origin: np.ndarray
+    x_axis: np.ndarray
+    y_axis: np.ndarray
+    z_axis: np.ndarray
 
     @classmethod
     def from_data(cls, data):
-        return cls(data['matedEntities'][1]['matedOccurrence'][0], data['matedEntities'][0]['matedOccurrence'][0], data['mateType'])
+        return cls(data['matedEntities'][1]['matedOccurrence'][0], data['matedEntities'][0]['matedOccurrence'][0], data['mateType'], data['matedEntities'][1]['matedCS']['origin'], data['matedEntities'][1]['matedCS']['xAxis'], data['matedEntities'][1]['matedCS']['yAxis'], data['matedEntities'][1]['matedCS']['zAxis'])
     
 def extract_mates(assembly: dict) -> dict[str, Mate]:
     return {data['id']: Mate.from_data(data['featureData']) for data in assembly['rootAssembly']['features']}
@@ -175,14 +179,14 @@ def collect_part_groups(trunk: str, parts: dict[str, Part], mates: dict[str, Mat
 
     return groups
 
-def create_sdf(fixed_groups: list[FixedGroup], model_name: str) -> etree._ElementTree:
+def create_sdf(fixed_groups: list[FixedGroup], parts: dict[str, Part], mates: dict[str, Mate], model_name: str) -> etree._ElementTree:
     sdf_root = etree.Element('sdf', version='1.6')
     model_element = etree.SubElement(sdf_root, 'model', name='blank_model')
 
-    for group in fixed_groups:
+    for i, group in enumerate(fixed_groups):
         # print('g: ', [part.identifier for part in group.parts.values()])
-        link_name = next(iter(group.parts.values())).identifier
-        link = etree.SubElement(model_element, 'link', name=link_name)
+        # link_name = next(iter(group.parts.values())).identifier
+        link = etree.SubElement(model_element, 'link', name=f'group_{i}')
 
         for part in group.parts.values():
             (x, y, z) = part.transform[:3, 3]
@@ -206,6 +210,52 @@ def create_sdf(fixed_groups: list[FixedGroup], model_name: str) -> etree._Elemen
         etree.SubElement(inertial, 'pose').text = f'{x} {y} {z} 0 0 0'
         etree.SubElement(inertial, 'mass').text = str(group.mass_properties.mass)
         # etree.SubElement(inertial, 'inertia').text = str(group.mass_properties.mass)
+
+    def find_group(part: str) -> int:
+        for i, group in enumerate(fixed_groups):
+            if part in group.parts:
+                return i
+        
+        return None
+
+    for mate in mates.values():
+        if mate.kind != 'FASTENED':
+            # print(f'{parts[mate.parent].identifier} -> {parts[mate.child].identifier}')
+
+            parent_identifier = parts[mate.parent].identifier
+            child_identifier = parts[mate.child].identifier
+
+            parent_group = find_group(mate.parent)
+            child_group = find_group(mate.child)
+
+            joint = etree.SubElement(model_element, 'joint', name=f'{parent_identifier}:{child_identifier}', type=mate.kind.lower())
+
+            local_transform = np.identity(4)
+            local_transform[:3, 3] = mate.origin
+            transform = np.dot(fixed_groups[parent_group].parts[mate.parent].transform, local_transform)
+
+            # print('local_transform:', local_transform[:3, 3])
+            # print('parent:', fixed_groups[parent_group].parts[mate.parent].transform[:3, 3])
+            # print('new transform:', transform[:3, 3])
+
+            joint_to_part = np.eye(4)
+            joint_to_part[:3, :3] = np.stack((
+                np.array(mate.x_axis),
+                np.array(mate.y_axis),
+                np.array(mate.z_axis)
+            )).T
+
+            transform = np.dot(transform, joint_to_part)
+
+            (x, y, z) = transform[:3, 3]
+            (roll, pitch, yaw) = Rotation.from_matrix(transform[:3, :3]).as_euler('xyz')
+            etree.SubElement(joint, 'pose').text = f'{x} {y} {z} {roll} {pitch} {yaw}'
+
+            etree.SubElement(joint, 'parent').text = f'group_{parent_group}'
+            etree.SubElement(joint, 'child').text = f'group_{child_group}'
+
+            axis = etree.SubElement(joint, 'axis')
+            etree.SubElement(axis, 'xyz').text = '0 0 1'
 
     return etree.ElementTree(sdf_root)
 
