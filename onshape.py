@@ -46,7 +46,6 @@ def get_mass_properties(assembly: dict, client: Client) -> dict[str, MassPropert
 
     for data in assembly['rootAssembly']['instances']:
         mass_data = client.get_mass_properties(data['documentId'], data['documentMicroversion'], data['elementId'], data['partId'])
-        print(mass_data)
         mass_props[data['id']] = MassProperties.from_data(next(iter(mass_data['bodies'].values())))
 
     return mass_props

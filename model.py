@@ -6,6 +6,7 @@ from lxml import etree
 from onshape import MassProperties, Mate, Part
 
 def create_sdf(name: str, parts: dict[str, Part], mates: dict[str, Mate]) -> etree._ElementTree:
+    # NOTE: do we still need to find trunk?
     if len(mates) == 0:
         trunk = next(iter(parts.keys()))
         print('No mates!')
@@ -14,7 +15,7 @@ def create_sdf(name: str, parts: dict[str, Part], mates: dict[str, Mate]) -> etr
 
     print(f'Root part: {parts[trunk].identifier}')
 
-    grouped_parts = collect_part_groups(trunk, parts, mates)
+    grouped_parts = collect_part_groups(parts, mates)
 
     for i, group in enumerate(grouped_parts):
         print(f'Group {i}: {", ".join(parts[id].identifier for id in group)}')
@@ -45,16 +46,22 @@ def find_trunk(mates: dict[str, Mate]):
 
     return current
 
-def collect_part_groups(trunk: str, parts: dict[str, Part], mates: dict[str, Mate]) -> list[list[str]]:
-    groups = [[trunk]]
+def collect_part_groups(parts: dict[str, Part], mates: dict[str, Mate]) -> list[list[str]]:
+    groups = list([part] for part in parts.keys())
+
+    def part_group_index(part: str) -> int:
+        return next(i for i, group in enumerate(groups) if part in group)
 
     for mate in mates.values():
-        if mate.parent in groups[0]:
-            if mate.kind == 'FASTENED':
-                groups[0].append(mate.child)
-            else:
-                # NOTE: this assumes mate graph is acyclic! (maybe worth fixing this?)
-                groups.extend(collect_part_groups(mate.child, parts, mates))
+        # we only group together fastened parts
+        if mate.kind == 'FASTENED':
+            parent_group = part_group_index(mate.parent)
+            child_group = part_group_index(mate.child)
+
+            # merge the two groups
+            if parent_group != child_group:
+                groups[parent_group].extend(groups[child_group])
+                groups.pop(child_group)
 
     return groups
 
@@ -75,8 +82,12 @@ def insert_link_groups(model_element: etree._Element, link_groups: list[LinkGrou
     for i, group in enumerate(link_groups):
         link = etree.SubElement(model_element, 'link', name=f'group_{i}')
 
+        (com_x, com_y, com_z) = group.mass_props.com
+        etree.SubElement(link, 'pose').text = f'{com_x} {com_y} {com_z} 0 0 0'
+
         for part in group.parts.values():
-            (x, y, z) = part.transform[:3, 3]
+            # HACK: does link transform always have no rotation?
+            (x, y, z) = part.transform[:3, 3] - group.mass_props.com
             (roll, pitch, yaw) = Rotation.from_matrix(part.transform[:3, :3]).as_euler('xyz')
             mesh_path = f'model://{model_name}/meshes/{part.identifier}.stl'
 
@@ -94,17 +105,16 @@ def insert_link_groups(model_element: etree._Element, link_groups: list[LinkGrou
 
         inertial = etree.SubElement(link, 'inertial')
 
-        (x, y, z) = group.mass_props.com
-        etree.SubElement(inertial, 'pose').text = f'{x} {y} {z} 0 0 0'
+        etree.SubElement(inertial, 'pose').text = f'0 0 0 0 0 0'
         etree.SubElement(inertial, 'mass').text = str(group.mass_props.mass)
 
         inertia = etree.SubElement(inertial, 'inertia')
-        etree.SubElement(inertia, 'ixx').text = str(group.mass_props.inertia[0, 0])
-        etree.SubElement(inertia, 'ixy').text = str(group.mass_props.inertia[0, 1])
-        etree.SubElement(inertia, 'ixz').text = str(group.mass_props.inertia[0, 2])
-        etree.SubElement(inertia, 'iyy').text = str(group.mass_props.inertia[1, 1])
-        etree.SubElement(inertia, 'iyz').text = str(group.mass_props.inertia[1, 2])
-        etree.SubElement(inertia, 'izz').text = str(group.mass_props.inertia[2, 2])
+        etree.SubElement(inertia, 'ixx').text = str(max(0, group.mass_props.inertia[0, 0]))
+        etree.SubElement(inertia, 'ixy').text = str(max(0, group.mass_props.inertia[0, 1]))
+        etree.SubElement(inertia, 'ixz').text = str(max(0, group.mass_props.inertia[0, 2]))
+        etree.SubElement(inertia, 'iyy').text = str(max(0, group.mass_props.inertia[1, 1]))
+        etree.SubElement(inertia, 'iyz').text = str(max(0, group.mass_props.inertia[1, 2]))
+        etree.SubElement(inertia, 'izz').text = str(max(0, group.mass_props.inertia[2, 2]))
 
 def insert_joints(model_element: etree._Element, link_groups: list[LinkGroup], parts: dict[str, Part], mates: dict[str, Mate]):
     def find_group(part: str) -> int:
@@ -126,14 +136,22 @@ def insert_joints(model_element: etree._Element, link_groups: list[LinkGroup], p
 
             joint = etree.SubElement(model_element, 'joint', name=f'{child_identifier}_joint', type=mate.kind.lower())
 
-            local_transform = np.identity(4)
-            local_transform[:3, 3] = mate.origin
-            transform = np.dot(link_groups[parent_group].parts[mate.parent].transform, local_transform)
+            # local_transform = np.identity(4)
+            # local_transform[:3, 3] = mate.origin
+            # # transform = np.dot(link_groups[parent_group].parts[mate.parent].transform, local_transform)
 
-            joint_to_part = np.eye(4)
-            joint_to_part[:3, :3] = mate.rotation
+            # link_group_transform = np.identity(4)
+            # link_group_transform[:3, 3] = link_groups[parent_group].mass_props.com
+            # transform = np.dot(link_group_transform, local_transform)
 
-            transform = np.dot(transform, joint_to_part)
+            # joint_to_part = np.eye(4)
+            # joint_to_part[:3, :3] = mate.rotation
+
+            # transform = np.dot(transform, joint_to_part)
+
+            # HACK: skipping this for now, how to fix?
+            # we are trying to find where to connect the mate to given that the link frame pose is now at the link com
+            transform = np.identity(4)
 
             (x, y, z) = transform[:3, 3]
             (roll, pitch, yaw) = Rotation.from_matrix(transform[:3, :3]).as_euler('xyz')
