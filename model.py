@@ -6,19 +6,17 @@ from lxml import etree
 from onshape import MassProperties, Mate, Part
 
 def create_sdf(name: str, parts: dict[str, Part], mates: dict[str, Mate]) -> etree._ElementTree:
-    # NOTE: do we still need to find trunk?
-    if len(mates) == 0:
-        trunk = next(iter(parts.keys()))
-        print('No mates!')
-    else:
-        trunk = find_trunk(mates)
-
-    print(f'Root part: {parts[trunk].identifier}')
-
     grouped_parts = collect_part_groups(parts, mates)
 
-    for i, group in enumerate(grouped_parts):
-        print(f'Group {i}: {", ".join(parts[id].identifier for id in group)}')
+    for group in grouped_parts:
+        # for part in group:
+        #     if mate_child := next((mate.child for mate in mates.values() if mate.kind == 'FASTENED' and mate.parent == part), None):
+        #         print('mate_child', parts[mate_child].identifier)
+
+
+
+        members = ", ".join(parts[id].identifier for id in group[1:])
+        print(f'Group: {parts[group[0]].identifier} {"(" + members + ")" if members else ""}')
 
     link_groups = create_link_groups(grouped_parts, parts)
 
@@ -36,15 +34,6 @@ def create_sdf(name: str, parts: dict[str, Part], mates: dict[str, Mate]) -> etr
 class LinkGroup:
     parts: dict[str, Part]
     mass_props: MassProperties
-
-def find_trunk(mates: dict[str, Mate]):
-    mated_graph = {mate.child: mate.parent for mate in mates.values()}
-    current = next(iter(mated_graph.values()))
-
-    while current in mated_graph:
-        current = mated_graph[current]
-
-    return current
 
 def collect_part_groups(parts: dict[str, Part], mates: dict[str, Mate]) -> list[list[str]]:
     groups = list([part] for part in parts.keys())
@@ -71,7 +60,7 @@ def create_link_groups(grouped_parts: list[list[str]], parts: dict[str, Part]) -
         link_frame_mass_props = [parts[part].mass_props.apply_transform(parts[part].transform) for part in group]
 
         group_mass = sum(mass_props.mass for mass_props in link_frame_mass_props)
-        group_com = sum(mass_props.mass * mass_props.com for mass_props in link_frame_mass_props) / len(link_frame_mass_props) / group_mass
+        group_com = sum(mass_props.mass * mass_props.com for mass_props in link_frame_mass_props) / group_mass
         group_inertia = sum(mass_props.inertia_at_point(group_com) for mass_props in link_frame_mass_props)
 
         link_groups.append(LinkGroup({part: parts[part] for part in group}, MassProperties(group_mass, group_com, group_inertia)))
@@ -82,7 +71,7 @@ def insert_link_groups(model_element: etree._Element, link_groups: list[LinkGrou
     for i, group in enumerate(link_groups):
         link = etree.SubElement(model_element, 'link', name=f'group_{i}')
 
-        (com_x, com_y, com_z) = group.mass_props.com
+        com_x, com_y, com_z = group.mass_props.com
         etree.SubElement(link, 'pose').text = f'{com_x} {com_y} {com_z} 0 0 0'
 
         for part in group.parts.values():
@@ -104,7 +93,6 @@ def insert_link_groups(model_element: etree._Element, link_groups: list[LinkGrou
             etree.SubElement(mesh, 'uri').text = mesh_path
 
         inertial = etree.SubElement(link, 'inertial')
-
         etree.SubElement(inertial, 'pose').text = f'0 0 0 0 0 0'
         etree.SubElement(inertial, 'mass').text = str(group.mass_props.mass)
 

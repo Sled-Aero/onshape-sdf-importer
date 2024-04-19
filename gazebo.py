@@ -7,7 +7,7 @@ from lxml import etree
 def insert_gazebo_plugins(sdf: etree._ElementTree):
     print('Inserting Gazebo plugins')
 
-    insert_rotor_plugins(sdf, RotorParameters(time_constant_up=0.0125, time_constant_down=0.025, max_rot_velocity=1100, motor_constant=10e-06, moment_constant=0.08, rotor_drag_coefficient=0.000175, rolling_moment_coefficient=1e-06, rotor_velocity_slowdown_sim=10))
+    insert_rotor_plugins(sdf, RotorParameters(time_constant_up=0.1, time_constant_down=0.2, max_rot_velocity=1100, motor_constant=9.0e-06, moment_constant=0.08, rotor_drag_coefficient=0.000175, rolling_moment_coefficient=0.8e-06, rotor_velocity_slowdown_sim=10))
     include_sensor(sdf, 'model://gps')
     insert_imu_plugin(sdf)
     insert_barometer_plugin(sdf)

@@ -81,4 +81,4 @@ class Mate:
         return cls(data['matedEntities'][1]['matedOccurrence'][0], data['matedEntities'][0]['matedOccurrence'][0], data['mateType'], features['origin'], np.stack((features['xAxis'], features['yAxis'], features['zAxis'])).T)
     
 def extract_mates(assembly: dict) -> dict[str, Mate]:
-    return {data['id']: Mate.from_data(data['featureData']) for data in assembly['rootAssembly']['features']}
+    return {data['id']: Mate.from_data(data['featureData']) for data in assembly['rootAssembly']['features'] if 'matedEntities' in data['featureData']}

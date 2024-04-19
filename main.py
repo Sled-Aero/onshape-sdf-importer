@@ -2,6 +2,7 @@ from argparse import ArgumentParser
 from pathlib import Path
 import numpy as np
 import os
+from airframe import create_airframe_config
 
 from api import Client
 from gazebo import create_gazebo_config, insert_gazebo_plugins
@@ -32,6 +33,9 @@ def main():
 
     config = create_gazebo_config(args.name)
     config.write(Path(model_path, 'model.config'), pretty_print=True, xml_declaration=True, encoding='utf-8')
+
+    # airframe = create_airframe_config(args.name, parts)
+    # open('airframe', 'w').write(airframe)
 
 if __name__ == '__main__':
     main()
