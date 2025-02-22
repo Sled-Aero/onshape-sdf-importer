@@ -84,7 +84,7 @@ def create_link_groups(grouped_parts: list[list[str]], parts: dict[str, Part]) -
 def insert_link_groups(model_element: etree._Element, link_groups: list[LinkGroup], model_name: str):
     for i, group in enumerate(link_groups):
         link = etree.SubElement(model_element, 'link', name=f'group_{i}')
-        print(group, group.mass_props.com)
+        # print(group, group.mass_props.com)
         com_x, com_y, com_z = group.mass_props.com
         etree.SubElement(link, 'pose').text = f'{com_x} {com_y} {com_z} 0 0 0'
 
@@ -136,8 +136,6 @@ def insert_joints(model_element: etree._Element, link_groups: list[LinkGroup], p
             parent_group = find_group(mate.parent)
             child_group = find_group(mate.child)
 
-            # print('mate:', mate.origin, link_groups[child_group].parts[mate.child].transform[:3, 3] - link_groups[child_group].mass_props.com)
-
             joint = etree.SubElement(model_element, 'joint', name=f'{child_identifier}_joint', type=mate.kind.lower())
 
             # local_transform = np.identity(4)
@@ -157,24 +155,13 @@ def insert_joints(model_element: etree._Element, link_groups: list[LinkGroup], p
             # we are trying to find where to connect the mate to given that the link frame pose is now at the link com
             # transform = np.identity(4)
 
-
-            # print("\n\n\n              --------------------")
-
-            # print(np.round(mate.rotation))
-            # # vals, vecs = np.linalg.eig(np.round(mate.rotation))
-            # # index = np.argmin(np.abs(vals - 1))
-            # # print(vecs)
-
-            # print("              --------------------\n\n\n")
-            
-
             # relative_to_global = np.dot(link_groups[parent_group].parts[mate.parent].transform, np.append(mate.origin, 1))
             # (x, y, z) = relative_to_global[:3]
             # times by the transform THEN take away th ecom of child?
 
-            print(link_groups[child_group].parts[mate.child].transform[:3, 3] - link_groups[child_group].mass_props.com)
+            # print(link_groups[child_group].parts[mate.child].transform[:3, 3] - link_groups[child_group].mass_props.com)
             # print(np.dot(link_groups[child_group].parts[mate.child].transform[:3, 3], mate.origin) - link_groups[child_group].mass_props.com)
-            print(mate.origin, link_groups[parent_group].parts[mate.parent].transform[:3, 3] + np.dot(link_groups[parent_group].parts[mate.parent].transform[:3, :3], mate.origin) - link_groups[child_group].mass_props.com)
+            # print(mate.origin, link_groups[parent_group].parts[mate.parent].transform[:3, 3] + np.dot(link_groups[parent_group].parts[mate.parent].transform[:3, :3], mate.origin) - link_groups[child_group].mass_props.com)
 
             # (x, y, z) = transform[:3, 3] # same as (0, 0, 0)
             # (x, y, z) = (0, 0, 0) # same as (0, 0, 0)
@@ -211,9 +198,15 @@ def insert_joints(model_element: etree._Element, link_groups: list[LinkGroup], p
             # etree.SubElement(axis, 'use_parent_model_frame').text = 'true'
             # etree.SubElement(axis, 'initial_position').text = f'{50.57}' 
 
+            print(mate.limits)
+
             limit = etree.SubElement(axis, 'limit')
+            if mate.limits['lower'] > -7:
+                etree.SubElement(limit, 'lower').text = f'{mate.limits['lower']}'
+            if mate.limits['upper'] < 7:
+                etree.SubElement(limit, 'upper').text = f'{mate.limits['upper']}'
             etree.SubElement(limit, 'effort').text = '1'
             etree.SubElement(limit, 'velocity').text = '20'
 
-            dynamics = etree.SubElement(axis, 'dynamics')
-            etree.SubElement(dynamics, 'friction').text = '1'
+            # dynamics = etree.SubElement(axis, 'dynamics')
+            # etree.SubElement(dynamics, 'friction').text = '1'

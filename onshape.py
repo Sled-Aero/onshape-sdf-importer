@@ -20,16 +20,35 @@ def fetch_assembly(client: Client, document_id: str, workspace_id: str, element_
     pp.pprint(assembly['partStudioFeatures'])
     # pp.pprint(assembly['rootAssembly'])
 
-    # print("\n\n\n                  --------------\n\ngetting assembly features")
-    # for feature in assembly_features['features']:
-    #     # pp.pprint(feature.keys())
-    #     if 'Revolute' not in feature['name']:
-    #         continue
-    #     print('name', feature['name'], 'featureId', feature['featureId'])
-    #     print([e['parameterId'] for e in feature['parameters']])
-    #     # for p in feature['parameters']:
-    #     #     if p['parameterId'] in ['rotation', 'rotationType', 'secondaryAxisAlignment', 'primaryAxisAlignment']:
-    #     #         print(p['parameterId'], p['value'])
+    print("\n\n\n                  --------------\n\ngetting assembly features")
+    for feature in assembly_features['features']:
+        # pp.pprint(feature.keys())
+        if 'Revolute' not in feature['name']:
+            continue
+        print('name', feature['name'], 'featureId', feature['featureId'])
+        print([e['parameterId'] for e in feature['parameters']])
+
+        # get joint limits (could also hardcode the index since it should always be the same from the api) 
+        # TODO: review, should we rely on onshape api? and can limits ever be 0.0
+        min_z_index = next((i for i, e in enumerate(feature['parameters']) if e['parameterId'] == 'limitAxialZMin'), None)
+        if min_z_index:
+            lower = float(feature['parameters'][min_z_index]['expression'][:-3]) * (np.pi / 180)
+            if lower != 0.0:
+                mates[feature['featureId']].limits['lower'] = lower
+        
+        max_z_index = next((i for i, e in enumerate(feature['parameters']) if e['parameterId'] == 'limitAxialZMax'), None)
+        if max_z_index:
+            upper = float(feature['parameters'][max_z_index]['expression'][:-3]) * (np.pi / 180)
+            if upper != 0.0:
+                mates[feature['featureId']].limits['upper'] = upper
+
+
+        # for p in feature['parameters']:
+        #     if p['parameterId'] in ['limitXMin', 'limitXMax', 'limitYMin', 'limitYMax', 'limitZMin', 'limitZMax', 'limitAxialXMin', 'limitAxialXMax', 'limitAxialYMin', 'limitAxialYMax', 'limitAxialZMin', 'limitAxialZMax']: #['rotation', 'rotationType', 'secondaryAxisAlignment', 'primaryAxisAlignment']:
+        #         limit_value = float(p['expression'][:-3]) * (np.pi / 180)
+        #         print(p['parameterId'], p['expression'], limit_value)
+
+
     #     pp.pprint(feature['parameters'])
     #     print('\n')
     #     break
@@ -53,7 +72,7 @@ def fetch_assembly(client: Client, document_id: str, workspace_id: str, element_
 
         # print('\n')
         # break
-    # print("\n\n                  --------------\n\n")
+    print("\n\n                  --------------\n\n")
     # uncomment when making changes in onshape
     print('Downloading part meshes')
     # download_part_meshes(client, assembly, meshes_path)
@@ -119,11 +138,12 @@ class Mate:
     kind: str
     origin: np.ndarray
     rotation: np.ndarray
+    limits: dict[str, float]
 
     @classmethod
     def from_data(cls, data):
         features = data['matedEntities'][1]['matedCS']
-        return cls(data['matedEntities'][1]['matedOccurrence'][0], data['matedEntities'][0]['matedOccurrence'][0], data['mateType'], features['origin'], np.stack((features['xAxis'], features['yAxis'], features['zAxis'])).T)
+        return cls(data['matedEntities'][1]['matedOccurrence'][0], data['matedEntities'][0]['matedOccurrence'][0], data['mateType'], features['origin'], np.stack((features['xAxis'], features['yAxis'], features['zAxis'])).T, {'lower': -7.0, 'upper': 7.0})
     
 def extract_mates(assembly: dict) -> dict[str, Mate]:
     return {data['id']: Mate.from_data(data['featureData']) for data in assembly['rootAssembly']['features'] if 'matedEntities' in data['featureData']}
