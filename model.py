@@ -6,6 +6,12 @@ from lxml import etree
 from onshape import MassProperties, Mate, Part
 
 def create_sdf(name: str, parts: dict[str, Part], mates: dict[str, Mate]) -> etree._ElementTree:
+
+    # sp = ['MqoJdm+1Ylb3JuY8T', 'M5iddUD56a6Tvjfui', 'M6wJi1A1p+H1YdBrd', 'MuW8F+gplOtCagK37', 'M0L9+5pBbdjB/ZUUg', 'M58/TZ9JuxatR0eGA', 'Minc79k0tRAKdHMpQ', 'MvbH5joNpoFd/nKov', 'MBn23zO+hH4HRbBSn', 'MA53Z7dbJXzUjrO0O', 'MAo6Z7+9vmtU0c+pQ', 'MoYwIH3aTLOjV2Dwq', 'Mo9JwCHdBGAVDta0q']
+    # sp = ['Mc2DFPuKuLiyW0yHc', 'MCgCab6AbGjLwcEiu', 'M3ClM1oe3fCYublOF', 'MkmKoS0po50ZsMVp8', 'MX6h9pnDIt1dXKUyD', 'MhEu+tBIA66ANBzdQ']
+    # parts = {key: parts[key] for key in sp}
+    # print(list(parts.keys()))
+
     grouped_parts = collect_part_groups(parts, mates)
 
     for group in grouped_parts:
@@ -14,9 +20,13 @@ def create_sdf(name: str, parts: dict[str, Part], mates: dict[str, Mate]) -> etr
         #         print('mate_child', parts[mate_child].identifier)
 
 
-
         members = ", ".join(parts[id].identifier for id in group[1:])
         print(f'Group: {parts[group[0]].identifier} {"(" + members + ")" if members else ""}')
+
+        # print(list(parts.keys()))
+        # print(list(group1_parts.keys()))
+        # print(group1_parts)
+        # exit()
 
     link_groups = create_link_groups(grouped_parts, parts)
 
@@ -34,6 +44,7 @@ def create_sdf(name: str, parts: dict[str, Part], mates: dict[str, Mate]) -> etr
 class LinkGroup:
     parts: dict[str, Part]
     mass_props: MassProperties
+    # pose: tuple[float, float, float, float, float, float]
 
 def collect_part_groups(parts: dict[str, Part], mates: dict[str, Mate]) -> list[list[str]]:
     groups = list([part] for part in parts.keys())
@@ -44,9 +55,12 @@ def collect_part_groups(parts: dict[str, Part], mates: dict[str, Mate]) -> list[
     for mate in mates.values():
         # we only group together fastened parts
         if mate.kind == 'FASTENED':
-            parent_group = part_group_index(mate.parent)
-            child_group = part_group_index(mate.child)
-
+            # NOTE: try except for parts with no next?
+            try:
+                parent_group = part_group_index(mate.parent)
+                child_group = part_group_index(mate.child)
+            except:
+                continue
             # merge the two groups
             if parent_group != child_group:
                 groups[parent_group].extend(groups[child_group])
@@ -70,7 +84,7 @@ def create_link_groups(grouped_parts: list[list[str]], parts: dict[str, Part]) -
 def insert_link_groups(model_element: etree._Element, link_groups: list[LinkGroup], model_name: str):
     for i, group in enumerate(link_groups):
         link = etree.SubElement(model_element, 'link', name=f'group_{i}')
-
+        print(group, group.mass_props.com)
         com_x, com_y, com_z = group.mass_props.com
         etree.SubElement(link, 'pose').text = f'{com_x} {com_y} {com_z} 0 0 0'
 
@@ -86,7 +100,7 @@ def insert_link_groups(model_element: etree._Element, link_groups: list[LinkGrou
             mesh = etree.SubElement(geometry, 'mesh')
             etree.SubElement(mesh, 'uri').text = mesh_path
 
-            collision = etree.SubElement(link, 'collision', name=part.identifier)
+            collision = etree.SubElement(link, 'collision', name=f'{part.identifier}_collision')
             etree.SubElement(collision, 'pose').text = f'{x} {y} {z} {roll} {pitch} {yaw}'
             geometry = etree.SubElement(collision, 'geometry')
             mesh = etree.SubElement(geometry, 'mesh')
@@ -122,6 +136,8 @@ def insert_joints(model_element: etree._Element, link_groups: list[LinkGroup], p
             parent_group = find_group(mate.parent)
             child_group = find_group(mate.child)
 
+            # print('mate:', mate.origin, link_groups[child_group].parts[mate.child].transform[:3, 3] - link_groups[child_group].mass_props.com)
+
             joint = etree.SubElement(model_element, 'joint', name=f'{child_identifier}_joint', type=mate.kind.lower())
 
             # local_transform = np.identity(4)
@@ -139,18 +155,65 @@ def insert_joints(model_element: etree._Element, link_groups: list[LinkGroup], p
 
             # HACK: skipping this for now, how to fix?
             # we are trying to find where to connect the mate to given that the link frame pose is now at the link com
-            transform = np.identity(4)
+            # transform = np.identity(4)
 
-            (x, y, z) = transform[:3, 3]
-            (roll, pitch, yaw) = Rotation.from_matrix(transform[:3, :3]).as_euler('xyz')
+
+            # print("\n\n\n              --------------------")
+
+            # print(np.round(mate.rotation))
+            # # vals, vecs = np.linalg.eig(np.round(mate.rotation))
+            # # index = np.argmin(np.abs(vals - 1))
+            # # print(vecs)
+
+            # print("              --------------------\n\n\n")
+            
+
+            # relative_to_global = np.dot(link_groups[parent_group].parts[mate.parent].transform, np.append(mate.origin, 1))
+            # (x, y, z) = relative_to_global[:3]
+            # times by the transform THEN take away th ecom of child?
+
+            print(link_groups[child_group].parts[mate.child].transform[:3, 3] - link_groups[child_group].mass_props.com)
+            # print(np.dot(link_groups[child_group].parts[mate.child].transform[:3, 3], mate.origin) - link_groups[child_group].mass_props.com)
+            print(mate.origin, link_groups[parent_group].parts[mate.parent].transform[:3, 3] + np.dot(link_groups[parent_group].parts[mate.parent].transform[:3, :3], mate.origin) - link_groups[child_group].mass_props.com)
+
+            # (x, y, z) = transform[:3, 3] # same as (0, 0, 0)
+            # (x, y, z) = (0, 0, 0) # same as (0, 0, 0)
+            (x, y, z) = (link_groups[parent_group].parts[mate.parent].transform[:3, 3] + np.dot(link_groups[parent_group].parts[mate.parent].transform[:3, :3], mate.origin)) - link_groups[child_group].mass_props.com
+            # (x, y, z) = np.dot(link_groups[child_group].parts[mate.child].transform[:3, 3], mate.origin) - link_groups[child_group].mass_props.com
+            # (x, y, z) = link_groups[child_group].parts[mate.child].transform[:3, 3] - link_groups[child_group].mass_props.com
+            # (x, y, z) = link_groups[child_group].parts[mate.child].transform[:3, 3] - link_groups[child_group].mass_props.com # working one for now
+            # (x, y, z) = link_groups[child_group].parts[mate.child].transform[:3, 3] + np.dot(link_groups[child_group].parts[mate.child].transform[:3, :3], link_groups[child_group].mass_props.com) 
+            # (x, y, z) = np.dot(np.dot(link_groups[child_group].parts[mate.child].transform[:3, :3], mate.rotation), mate.origin)
+            # (x, y, z) = np.dot(np.dot(link_groups[child_group].parts[mate.child].transform[:3, :3], mate.rotation), mate.origin)
+            # print(mate.origin, link_groups[child_group].parts[mate.child].transform[:3, 3] - link_groups[child_group].mass_props.com)
+
+            # print('rpw:', Rotation.from_matrix(link_groups[child_group].parts[mate.child].transform[:3, :3]).as_euler('xyz'), Rotation.from_matrix(transform[:3, :3]).as_euler('xyz'))
+            # (roll, pitch, yaw) = Rotation.from_matrix(transform[:3, :3]).as_euler('xyz')
+            (roll, pitch, yaw) = Rotation.from_matrix(mate.rotation).as_euler('xyz')
+            
+            # (roll, pitch, yaw) = Rotation.from_matrix(np.dot(link_groups[child_group].parts[mate.child].transform[:3, :3], mate.rotation)).as_euler('xyz')
+            # (roll, pitch, yaw) = Rotation.from_matrix(np.dot(link_groups[child_group].parts[mate.child].transform[:3, :3], np.array([[1, 0, 0], [0, 0, 1], [0, -1, 0]]))).as_euler('xyz')
+            # (roll, pitch, yaw) = Rotation.from_matrix(link_groups[child_group].parts[mate.child].transform[:3, :3]).as_euler('xyz')
+            
+            # (roll, pitch, yaw) = Rotation.from_matrix(mate.rotation).as_euler('xyz')
             etree.SubElement(joint, 'pose').text = f'{x} {y} {z} {roll} {pitch} {yaw}'
 
             etree.SubElement(joint, 'parent').text = f'group_{parent_group}'
             etree.SubElement(joint, 'child').text = f'group_{child_group}'
 
             axis = etree.SubElement(joint, 'axis')
-            etree.SubElement(axis, 'xyz').text = '0 0 1'
+            # (rx, ry, rz) = np.dot(mate.rotation, np.array([0, 0, 1])) # default (without transformation?) is 0 0 1??
+            # (rx, ry, rz) = np.dot(np.dot(mate.rotation, link_groups[child_group].parts[mate.child].transform[:3, :3]), np.array([0, 0, 1])) # same as above??
+            # (rx, ry, rz) = np.dot(np.dot(mate.rotation, np.array([[0, 0, -1], [0, 1, 0], [-1, 0, 0]])), np.array([0, 0, 1])) # same as above??
+            (rx, ry, rz) = (0, 0, 1) # ALL ONSHAPE REVOLUTE AXIS ARE ABOUT THE Z
+            # print(f'rotation axis in sdf: {rx} {ry} {rz}')
+            etree.SubElement(axis, 'xyz').text = f'{rx} {ry} {rz}' 
+            # etree.SubElement(axis, 'use_parent_model_frame').text = 'true'
+            # etree.SubElement(axis, 'initial_position').text = f'{50.57}' 
 
             limit = etree.SubElement(axis, 'limit')
             etree.SubElement(limit, 'effort').text = '1'
             etree.SubElement(limit, 'velocity').text = '20'
+
+            dynamics = etree.SubElement(axis, 'dynamics')
+            etree.SubElement(dynamics, 'friction').text = '1'

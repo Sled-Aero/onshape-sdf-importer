@@ -4,6 +4,7 @@ import numpy as np
 import os
 from airframe import create_airframe_config
 import pickle
+import pprint as pp
 
 from api import Client
 from gazebo import create_gazebo_config, insert_gazebo_plugins
@@ -48,6 +49,11 @@ def main():
         with open(os.path.join(parts_mates, 'mates.pickle'), 'rb') as handle:
             mates = pickle.load(handle)
 
+    # pp.pprint(parts)
+    # pp.pprint(mates)
+    # print("\n\n\n\n\n")
+
+    # exit()
     sdf = create_sdf(args.name, parts, mates)
     insert_gazebo_plugins(sdf)
     sdf.write(Path(model_path, f'{args.name}.sdf'), pretty_print=True, xml_declaration=True, encoding='utf-8')

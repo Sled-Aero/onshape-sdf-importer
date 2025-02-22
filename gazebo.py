@@ -8,7 +8,7 @@ def insert_gazebo_plugins(sdf: etree._ElementTree):
     print('Inserting Gazebo plugins')
 
     insert_rotor_plugins(sdf, RotorParameters(time_constant_up=0.1, time_constant_down=0.2, max_rot_velocity=1100, motor_constant=9.0e-06, moment_constant=0.08, rotor_drag_coefficient=0.000175, rolling_moment_coefficient=0.8e-06, rotor_velocity_slowdown_sim=10))
-    include_sensor(sdf, 'model://gps')
+    # include_sensor(sdf, 'model://gps')
     insert_imu_plugin(sdf)
     insert_barometer_plugin(sdf)
     insert_magnetometer_plugin(sdf)
@@ -43,25 +43,46 @@ def insert_rotor_plugins(tree: etree._ElementTree, parameters: RotorParameters):
     etree.SubElement(rosbag, 'linkName').text = base_link
     etree.SubElement(rosbag, 'rotorVelocitySlowdownSim').text = str(parameters.rotor_velocity_slowdown_sim)
 
-    for i, name in enumerate(['8x4x3_propeller_ccw_1_joint', '8x4x3_propeller_ccw_2_joint', '8x4x3_propeller_cw_1_joint', '8x4x3_propeller_cw_2_joint']): # FIXME: hardcoding!!
-        link_name = next(joint.find('child').text for joint in model.findall('joint') if joint.attrib['name'] == name)
+    # for i, name in enumerate(['8x4x3_propeller_ccw_1_joint', '8x4x3_propeller_ccw_2_joint', '8x4x3_propeller_cw_1_joint', '8x4x3_propeller_cw_2_joint']): # FIXME: hardcoding!!
+    #     link_name = next(joint.find('child').text for joint in model.findall('joint') if joint.attrib['name'] == name)
 
-        motor = etree.SubElement(model, 'plugin', { 'name': f'{name}_model', 'filename': 'libgazebo_motor_model.so' })
-        etree.SubElement(motor, 'robotNamespace')
-        etree.SubElement(motor, 'jointName').text = name
-        etree.SubElement(motor, 'linkName').text = link_name
-        etree.SubElement(motor, 'turningDirection').text = 'ccw' if i // 2 == 0 else 'cw'
-        etree.SubElement(motor, 'timeConstantUp').text = str(parameters.time_constant_up)
-        etree.SubElement(motor, 'timeConstantDown').text = str(parameters.time_constant_down)
-        etree.SubElement(motor, 'maxRotVelocity').text = str(parameters.max_rot_velocity)
-        etree.SubElement(motor, 'motorConstant').text = str(parameters.motor_constant)
-        etree.SubElement(motor, 'momentConstant').text = str(parameters.moment_constant)
-        etree.SubElement(motor, 'commandSubTopic').text = '/gazebo/command/motor_speed'
-        etree.SubElement(motor, 'motorNumber').text = str(i)
-        etree.SubElement(motor, 'rotorDragCoefficient').text = str(parameters.rotor_drag_coefficient)
-        etree.SubElement(motor, 'rollingMomentCoefficient').text = str(parameters.rolling_moment_coefficient)
-        etree.SubElement(motor, 'motorSpeedPubTopic').text = f'/motor_speed/{i}'
-        etree.SubElement(motor, 'rotorVelocitySlowdownSim').text = str(parameters.rotor_velocity_slowdown_sim)
+    #     motor = etree.SubElement(model, 'plugin', { 'name': f'{name}_model', 'filename': 'libgazebo_motor_model.so' })
+    #     etree.SubElement(motor, 'robotNamespace')
+    #     etree.SubElement(motor, 'jointName').text = name
+    #     etree.SubElement(motor, 'linkName').text = link_name
+    #     etree.SubElement(motor, 'turningDirection').text = 'ccw' if i // 2 == 0 else 'cw'
+    #     etree.SubElement(motor, 'timeConstantUp').text = str(parameters.time_constant_up)
+    #     etree.SubElement(motor, 'timeConstantDown').text = str(parameters.time_constant_down)
+    #     etree.SubElement(motor, 'maxRotVelocity').text = str(parameters.max_rot_velocity)
+    #     etree.SubElement(motor, 'motorConstant').text = str(parameters.motor_constant)
+    #     etree.SubElement(motor, 'momentConstant').text = str(parameters.moment_constant)
+    #     etree.SubElement(motor, 'commandSubTopic').text = '/gazebo/command/motor_speed'
+    #     etree.SubElement(motor, 'motorNumber').text = str(i)
+    #     etree.SubElement(motor, 'rotorDragCoefficient').text = str(parameters.rotor_drag_coefficient)
+    #     etree.SubElement(motor, 'rollingMomentCoefficient').text = str(parameters.rolling_moment_coefficient)
+    #     etree.SubElement(motor, 'motorSpeedPubTopic').text = f'/motor_speed/{i}'
+    #     etree.SubElement(motor, 'rotorVelocitySlowdownSim').text = str(parameters.rotor_velocity_slowdown_sim)
+
+    # below is for dragonfly, above is for grasshopper (original)
+    # for i, name in enumerate(['7x4x3_propeller_ccw_1_joint', '7x4x3_propeller_ccw_2_joint', '7x4x3_propeller_cw_1_joint', '7x4x3_propeller_cw_2_joint']): # FIXME: hardcoding!!
+    #     link_name = next(joint.find('child').text for joint in model.findall('joint') if joint.attrib['name'] == name)
+
+    #     motor = etree.SubElement(model, 'plugin', { 'name': f'{name}_model', 'filename': 'libgazebo_motor_model.so' })
+    #     etree.SubElement(motor, 'robotNamespace')
+    #     etree.SubElement(motor, 'jointName').text = name
+    #     etree.SubElement(motor, 'linkName').text = link_name
+    #     etree.SubElement(motor, 'turningDirection').text = 'ccw' if i // 2 == 0 else 'cw'
+    #     etree.SubElement(motor, 'timeConstantUp').text = str(parameters.time_constant_up)
+    #     etree.SubElement(motor, 'timeConstantDown').text = str(parameters.time_constant_down)
+    #     etree.SubElement(motor, 'maxRotVelocity').text = str(parameters.max_rot_velocity)
+    #     etree.SubElement(motor, 'motorConstant').text = str(parameters.motor_constant)
+    #     etree.SubElement(motor, 'momentConstant').text = str(parameters.moment_constant)
+    #     etree.SubElement(motor, 'commandSubTopic').text = '/gazebo/command/motor_speed'
+    #     etree.SubElement(motor, 'motorNumber').text = str(i)
+    #     etree.SubElement(motor, 'rotorDragCoefficient').text = str(parameters.rotor_drag_coefficient)
+    #     etree.SubElement(motor, 'rollingMomentCoefficient').text = str(parameters.rolling_moment_coefficient)
+    #     etree.SubElement(motor, 'motorSpeedPubTopic').text = f'/motor_speed/{i}'
+    #     etree.SubElement(motor, 'rotorVelocitySlowdownSim').text = str(parameters.rotor_velocity_slowdown_sim)
 
 def include_sensor(tree: etree._ElementTree, sensor_path: str):
     model = tree.getroot()[0]
