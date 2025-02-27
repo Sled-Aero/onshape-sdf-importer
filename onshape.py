@@ -12,24 +12,15 @@ def fetch_assembly(client: Client, document_id: str, workspace_id: str, element_
     assembly_features = client.get_assembly_features(document_id, workspace_id, element_id)
     print('Fetching mass properties')
     mass_props = get_mass_properties(assembly, client)
-    # pp.pprint(assembly)
+
     parts = extract_parts(assembly, mass_props)
     mates = extract_mates(assembly)
 
-    pp.pprint(assembly.keys())
-    pp.pprint(assembly['partStudioFeatures'])
-    # pp.pprint(assembly['rootAssembly'])
-
-    print("\n\n\n                  --------------\n\ngetting assembly features")
+    # print("\n\n\n                  --------------\n\ngetting assembly features")
     for feature in assembly_features['features']:
-        # pp.pprint(feature.keys())
-        if 'Revolute' not in feature['name']:
-            continue
-        print('name', feature['name'], 'featureId', feature['featureId'])
-        print([e['parameterId'] for e in feature['parameters']])
 
         # get joint limits (could also hardcode the index since it should always be the same from the api) 
-        # TODO: review, should we rely on onshape api? and can limits ever be 0.0
+        # TODO: review, should we rely on onshape api? and can limits ever be 0.0?
         min_z_index = next((i for i, e in enumerate(feature['parameters']) if e['parameterId'] == 'limitAxialZMin'), None)
         if min_z_index:
             lower = float(feature['parameters'][min_z_index]['expression'][:-3]) * (np.pi / 180)
@@ -43,36 +34,6 @@ def fetch_assembly(client: Client, document_id: str, workspace_id: str, element_
                 mates[feature['featureId']].limits['upper'] = upper
 
 
-        # for p in feature['parameters']:
-        #     if p['parameterId'] in ['limitXMin', 'limitXMax', 'limitYMin', 'limitYMax', 'limitZMin', 'limitZMax', 'limitAxialXMin', 'limitAxialXMax', 'limitAxialYMin', 'limitAxialYMax', 'limitAxialZMin', 'limitAxialZMax']: #['rotation', 'rotationType', 'secondaryAxisAlignment', 'primaryAxisAlignment']:
-        #         limit_value = float(p['expression'][:-3]) * (np.pi / 180)
-        #         print(p['parameterId'], p['expression'], limit_value)
-
-
-    #     pp.pprint(feature['parameters'])
-    #     print('\n')
-    #     break
-
-        # pp.pprint(feature['parameters'][6])
-        # pp.pprint(feature['mateConnectors'])
-        # for p in feature['parameters']:
-        #     if p['parameterId'] in ['rotation', 'rotationType', 'secondaryAxisAlignment', 'primaryAxisAlignment']:
-        #         print(p['parameterId'], p['value'])
-        # print(feature['mateConnectors'][0])
-
-        # for mc in feature['mateConnectors']:
-        #     print([e['parameterId'] for e in mc['parameters']])
-        #     for p in mc['parameters']:
-        #         # find out the rotation axis for mate connectors... those seems to be more correct than the mates themselves (aboutz instead of aboutx)
-        #         if p['parameterId'] in ['rotation', 'rotationType', 'flipPrimary', 'transform', 'realign', 'secondaryAxisType']:
-        #             print(p['parameterId'], p['value'])
-        #     print('-----------')
-        
-        # pp.pprint(feature['mateConnectors'][0]['parameters'][10])
-
-        # print('\n')
-        # break
-    print("\n\n                  --------------\n\n")
     # uncomment when making changes in onshape
     print('Downloading part meshes')
     # download_part_meshes(client, assembly, meshes_path)
